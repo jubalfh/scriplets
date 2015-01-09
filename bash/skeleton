@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# utility functions
+on_error() {
+    local prog fun lineno rc
+    prog=$(basename $0)
+    read -r fun lineno rc <<< "$@"; rc=($rc)
+    echo "error in ${fun} at ${prog}:${lineno} with exit code ${rc[0]}."
+    [[ -z "${DEBUG}" ]] || caller
+    exit ${rc[0]}
+}
+
+init() {
+    # error handling
+    set -o errexit
+    set -o errtrace
+    set -o pipefail
+    trap 'on_error ${FUNCNAME[0]} ${LINENO} ${PIPESTATUS[@]}' ERR INT HUP
+    # STDERR redirection
+    : "${DEBUG_LOGFILE:=/dev/null}"
+    exec 2>${DEBUG_LOGFILE}
+    # verbosity
+    [[ -z "${DEBUG}" ]] || set -x
+}
+
+# doing the needful
+main() {
+    init
+}
+
+main $@
