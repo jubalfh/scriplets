@@ -91,9 +91,9 @@ main() {
     )
     display=$(xrandr --current | awk '/primary/ { print $1 }')
 
-    case $1 in
+    case "$1" in
         ${pos_pattern})
-            rotate ${1}
+            rotate "$1"
             ;;
         cw|clockwise|clock*)
             idx=$(( ($(lookup positions ${pos_current}) + 1) % ${pos_max} ))
