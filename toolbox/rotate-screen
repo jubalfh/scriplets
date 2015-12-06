@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+
+# rotate desktop and input devices (either explicitly, or in
+# a relative manner, clockwise and counterclockwise)
+
+# loosely based on rotate_desktop.sh gist:
+#   <https://gist.github.com/mildmojo/48e9025070a2ba40795c>
+# * tries really hard to discover devices, no configuration
+#   should be needed
+# * as its predecessor, uses transformation matrices from Ubuntu
+#   wiki
+
+usage() {
+    prog=$(basename $0)
+    cat << EOF
+
+${prog}: rotate screen and reconfigure touchscreen and touchpad.
+
+Usage: ${prog} reset|normal|left|inverted|right
+       ${prog} cw|clockwise
+       ${prog} ccw|counterclockwise
+
+EOF
+}
+
+on_error() {
+    # break nicely
+    local prog fun lineno rc
+    prog=$(basename $0)
+    read -r fun lineno rc <<< "$@"; rc=($rc)
+    echo "error in ${fun} at ${prog}:${lineno} with exit code ${rc[0]}."
+    [[ -z "${DEBUG}" ]] || caller
+    exit ${rc[0]}
+}
+
+init() {
+    # error handling
+    set -o errexit
+    set -o errtrace
+    set -o pipefail
+    trap 'on_error ${FUNCNAME[0]} ${LINENO} ${PIPESTATUS[@]}' ERR INT HUP
+    # STDERR redirection
+    : "${DEBUG_LOGFILE:=/dev/null}"
+    exec 2>${DEBUG_LOGFILE}
+    # verbosity
+    [[ -z "${DEBUG}" ]] || set -x
+}
+
+lookup() {
+    # look-up the array index while having a value
+    local -n array=${1:?}
+    local string=${2:?} pos="-1"
+
+    case ${array[*]} in
+        *"$string"*)
+            for val in "${!array[@]}"; do
+                case ${array[val]} in
+                    *"$string"*)
+                        pos="${val}"; break ;;
+                esac
+            done ;;
+    esac
+    echo ${pos}
+}
+
+rotate() {
+    # rotate the screen to a chosen position
+    local position=${1:?} idx matrix
+    idx=$(lookup positions $position)
+    matrix=${matrices[$idx]}
+    xrandr --output "${display}" --rotate "${position}"
+    xinput --list --name-only | egrep -i "(touchscreen|touchpad)" |
+    while read device; do
+        xinput set-prop "${device}" "Coordinate Transformation Matrix" ${matrix}
+    done
+}
+
+main() {
+    init
+    shopt -s extglob
+
+    positions=("normal" "left" "inverted" "right")
+    pos_current=$(xrandr --current --verbose | awk '/primary/ { print $6 }')
+    pos_pattern="@($(IFS="|"; echo -n "${positions[*]}"))"
+    pos_max=${#positions[@]}
+    matrices=(
+        "1 0 0 0 1 0 0 0 1"   # 0° (normal)
+        "0 -1 1 1 0 0 0 0 1"  # 90° CW (left)
+        "-1 0 1 0 -1 1 0 0 1" # 180° CW (inverted)
+        "0 1 0 -1 0 1 0 0 1"  # 270° CW (right)
+    )
+    display=$(xrandr --current | awk '/primary/ { print $1 }')
+
+    case $1 in
+        ${pos_pattern})
+            rotate ${1}
+            ;;
+        cw|clockwise|clock*)
+            idx=$(( ($(lookup positions ${pos_current}) + 1) % ${pos_max} ))
+            rotate ${positions[$idx]}
+            ;;
+        ccw|counterclockwise|counter*)
+            idx=$(( ($(lookup positions ${pos_current}) - 1) % ${pos_max} ))
+            rotate ${positions[$idx]}
+            ;;
+        reset)
+            rotate normal
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
